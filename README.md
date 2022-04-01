@@ -10,13 +10,12 @@ pnpm i
 pnpm dev
 ```
 
-Default port is 3001. CHange it in `package.json` `scripts -> dev`
+Default port is 3001. CHange it in `package.json` inside the `scripts -> dev` command
 
 ```json
 
 
 "scripts": {
 "dev": "vite --port 3001",
-"build": "vite build",
 ```
 
