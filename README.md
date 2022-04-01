@@ -10,7 +10,7 @@ pnpm i
 pnpm dev
 ```
 
-Default port is 3001. CHange it in `package.json` inside the `scripts -> dev` command
+Default port is **3001**. CHange it in `package.json` inside the `scripts -> dev` command
 
 ```json
 
