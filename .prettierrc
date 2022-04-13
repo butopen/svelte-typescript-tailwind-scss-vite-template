@@ -3,10 +3,12 @@
   "singleQuote": true,
   "tabWidth": 2,
   "trailingComma": "none",
-  "printWidth": 90,
+  "printWidth": 120,
   "bracketSameLine": true,
   "htmlWhitespaceSensitivity": "ignore",
-  "plugins": ["./node_modules/prettier-plugin-tailwindcss"],
+  "plugins": [
+    "./node_modules/prettier-plugin-tailwindcss"
+  ],
   "overrides": [
     {
       "files": "*.svelte",
