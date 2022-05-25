@@ -1,44 +1,43 @@
-import { Writable, writable } from 'svelte/store';
+import { get, writable, Writable } from 'svelte/store';
+import type { StartStopNotifier } from 'svelte/types/runtime/store';
 
-(window as any).svelteLogStores = window.location.href.startsWith(
-  'http://localhost:3001'
-);
+type Loggable = (<T>(store: Writable<T>) => Writable<T>) & { enabled: boolean };
 
-type EnhancedWritable<X> = Writable<X> & {
-  update: (action: Partial<X> | ((prevStore: X) => Partial<X>)) => void;
-};
-
-export function loggedWritable<T>(initialStore: T) {
-  const { writable, update } = createStore<T>(initialStore);
-  writable.update = (newState: Partial<T> | ((prevStore: T) => Partial<T>)) =>
-    update(writable, newState as any);
-  return writable as EnhancedWritable<T>;
+function loggableFunction<T>(store?: Writable<T>) {
+  if (!store) store = writable<T>();
+  const w: Writable<T> = {
+    update(updater) {
+      update(store, updater);
+    },
+    set(value: T) {
+      update(store, value);
+    },
+    subscribe(run, invalidator) {
+      return store.subscribe(run, invalidator);
+    }
+  };
+  return w;
 }
 
-function isFunction(functionToCheck) {
-  var getType = {};
-  return (
-    functionToCheck && getType.toString.call(functionToCheck) === '[object Function]'
-  );
-}
+(loggableFunction as Loggable).enabled = true;
 
-function isNode(o) {
-  return typeof Node === 'object'
-    ? o instanceof Node
-    : o &&
-        typeof o === 'object' &&
-        typeof o.nodeType === 'number' &&
-        typeof o.nodeName === 'string';
-}
+/**
+ * Returns a writable store that logs useful information into the console.
+ *
+ * Use loggable.enabled = false to disable logging at runtime
+ *
+ * @param store - a writable can be passed as input to wrap an existing writable
+ *
+ * @returns The writable that logs to the console
+ */
+export const loggable = loggableFunction as Loggable;
 
-function isElement(o) {
-  return typeof HTMLElement === 'object'
-    ? o instanceof HTMLElement //DOM2
-    : o &&
-        typeof o === 'object' &&
-        o !== null &&
-        o.nodeType === 1 &&
-        typeof o.nodeName === 'string';
+function log<T>(functionName: string, functionLink: string, newPartial: Partial<T>, prevState: T, nextState: T) {
+  console.groupCollapsed(functionName, newPartial, functionLink);
+  console.log('PREV STATE', prevState);
+  console.log('NEXT STATE', nextState);
+  (console as any).trace();
+  console.groupEnd();
 }
 
 function serializer(replacer?, cycleReplacer?) {
@@ -67,55 +66,46 @@ function serializer(replacer?, cycleReplacer?) {
   };
 }
 
-const logActions = () => (window as any).svelteLogStores;
-const stores = new WeakMap();
-
-function update<T>(store: Writable<T>, newPartialStore: Partial<T>);
-function update<T>(store: Writable<T>, action: (prevStore: T) => Partial<T>);
-function update<T>(
-  store: Writable<T>,
-  action: Partial<T> | ((prevStore: T) => Partial<T>)
-) {
-  const prevStore = stores.get(store);
+function update<T>(store: Writable<T>, action: Partial<T> | ((prevStore: T) => Partial<T>)) {
+  const prevStore = get(store);
 
   let ps;
-  if (logActions()) ps = JSON.parse(JSON.stringify(prevStore, serializer()));
-  const result = isFunction(action)
-    ? (action as (prevStore: T) => Partial<T>)(prevStore)
-    : (action as Partial<T>);
+  if (loggable.enabled) ps = JSON.parse(JSON.stringify(prevStore, serializer()));
+  const isFunction = (f) => f && {}.toString.call(f) === '[object Function]';
+  const result = isFunction(action) ? (action as (prevStore: T) => Partial<T>)(prevStore) : (action as Partial<T>);
   const ns = {
     ...prevStore,
     ...result
   };
-  if (logActions()) {
+  if (loggable.enabled) {
     const err = new Error();
     const stack = err.stack;
-    const functionName = stack.split('at ')[3].split(' ')[0];
-    log(functionName, result, ps, ns);
+    const stackInfo = stack.split('at ')[4].split(' ');
+    const functionName = stackInfo[0];
+    const functionLink = stackInfo[1];
+    log(functionName, functionLink, result, ps, ns);
   }
   store.set(ns);
 }
 
-export function createStore<T>(initialStore: T) {
-  let prevStore: T = initialStore;
-  const writableStore = writable<T>(initialStore);
-  stores.set(writableStore, prevStore);
-  writableStore.subscribe((s) => {
-    prevStore = s;
-    stores.set(writableStore, prevStore);
-  });
-  return { store: prevStore, writable: writableStore, update };
+export interface Mergeable<T> extends Writable<T> {
+  /**
+   * Merge value with current state and inform subscribers.
+   *
+   * @param value - to merge
+   */
+  merge(value: Partial<T>): void;
 }
 
-function log<T>(
-  functionName: string,
-  newPartial: Partial<T>,
-  prevState: T,
-  nextState: T
-) {
-  console.groupCollapsed(functionName, newPartial);
-  console.log('PREV STATE', prevState);
-  console.log('NEXT STATE', nextState);
-  (console as any).trace();
-  console.groupEnd();
+/**
+ * Returns a writable store that has a *merge* method to update the store given a partial new state
+ * @param value - the initial value (type will be inferred from this object)
+ * @param start (@see svelte/types/runtime/stores/index.d.ts writeable)
+ */
+export function mergeable<T>(initialValue?: T, start?: StartStopNotifier<T>): Mergeable<T> {
+  const w = writable(initialValue, start);
+  (w as Mergeable<T>).merge = (value: Partial<T>) => {
+    w.set({ ...get(w), ...value });
+  };
+  return w as Mergeable<T>;
 }
